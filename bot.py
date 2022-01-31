@@ -1,5 +1,9 @@
 
 import websocket, json, pprint, talib, numpy
+from dotenv import load_dotenv
+from binance.client import Client
+from binance.enums import *
+import os
 
 SOCKET = "wss://stream.binance.com:9443/ws/ethusdt@kline_1m"
 
@@ -12,6 +16,21 @@ TRADE_QUANTITY = 0.009
 closes = []
 in_position = False
 
+api_key = os.getenv("API_KEY")
+api_secret = os.getenv("API_SECRET")
+
+client = Client(api_key,api_secret)
+
+def order(side, quantity, symbol, order_type=ORDER_TYPE_MARKET):
+    try:
+        print("Sending order")
+        order = client.create_order(symbol=symbol, side=side, type=order_type, quantity=quantity)
+        print(order)
+    except Exception as e:
+        print("An exception occured - {}".format(e))
+        return False
+    return True
+
 def on_open(ws):
     print('open connection')
 
@@ -19,40 +38,49 @@ def on_close(ws):
     print('closed connection')
 
 def on_message(ws, message):
-    global closes
+    global closes, in_position
+
     print('received message')
-    print(message)
     json_message = json.loads(message)
     pprint.pprint(json_message)
 
     candle = json_message['k']
+
     is_candle_closed = candle['x']
     close = candle['c']
 
     if is_candle_closed:
-        print("candle closed at {}".format(close))
+        print("Candle closed at {}".format(close))
         closes.append(float(close))
-        print("closes")
+        print("Closes")
         print(closes)
 
         if len(closes) > RSI_PERIOD:
             np_closes = numpy.array(closes)
             rsi = talib.RSI(np_closes, RSI_PERIOD)
-            print("all rsi calculated")
+            print("All rsi calculated")
             print(rsi)
             last_rsi = rsi[-1]
-            print("the current rsi is {}".format(last_rsi))
+            print("The current rsi is {}".format(last_rsi))
 
             if last_rsi > RSI_OVERBOUGHT:
                 if in_position:
-                    print("Sell !!!!!!!")
+                    print("Sell !!")
+                    order_succeeded = order(SIDE_SELL, TRADE_QUANTITY, TRADE_SYMBOL)
+                    if order_succeeded:
+                        in_position = False
                 else:
-                    print("overbought, but we dont owe any")
+                    print("Overbought, but we dont owe any. Do nothing")
 
             if last_rsi < RSI_OVERSOLD:
-                print("BUYYYY!!")
                 if in_position:
-                    print("it is oversold but you own it, do nothing")
+                    print("It is oversold but you own it, do nothing")
+                else:
+                    print("BUYYYY!!")
+                    order_succeeded = order(SIDE_BUY, TRADE_QUANTITY, TRADE_SYMBOL)
+                    if order_succeeded:
+                        in_position = True
+
 
 
 ws = websocket.WebSocketApp(SOCKET, on_open=on_open, on_close=on_close, on_message=on_message)
